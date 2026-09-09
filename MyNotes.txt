@@ -1,0 +1,139 @@
+## Assignment notes
+"C:\Users\owfra\WebAppSecClass\Case Studies\case1\BlueTag\src\middleware\auth.js"
+Host this somewhere your classmates and instructor can reach. Walk the running app until you can explain:
+
+- how a request becomes a row in SQLite:
+found by searching items.js for "insert"
+router uses a router.post that takes the user supplied info and ads to database with const info = db.prepare(*insert statment*).run(req.session.user.id,*data*)
+
+- where authentication is enforced:
+Recursive search files for "auth*"
+    returned Case Studies\case1\BlueTag\src\routes\auth.js  &  Case Studies\case1\BlueTag\src\middleware\auth.js
+    route/auth.js has a check: if (!email.endsWith(".edu")) and raises error message if no .edu email.
+    middlewa/auth.js has a check: requireAuth(req, res, next) {if (!req.session.user) {}}  that redirects to /login is no session is defined.
+
+- how search, filters, and item pages load data:
+found by searching item.js for "select"
+    Router uses re.redirect or res.render to show pages based int he result of a select query.
+    for example, selecting from your own posts, select by ID.
+    pages check is the user own the item before letting them change anything about the entry.
+    All searches are simplifed with the use of a searchitems function preloaded with a const fro a sql query.
+
+
+- Then look for a security defect in the running system:
+The sql search constant in the searchitems function explicitly removes WHERE items.status != 'removed'
+Normaly providing no input to the search bar returns all non removed entries in the DB (removed entries are probably kept for compliance and nonrepudiation)
+Opening the website and searchign with    ' OR 1=1 --     returns all entries including the removed ones.
+
+Looking at the code ( and using google to search how sql squery work by order of operations):
+    after q is true and added to the expression:
+        Where(
+                items.status != 'removed' AND items.title || ' ' || items.description || ' ' || items.location LIKE '%${q}%'
+        )
+        here ${q} becomes ' OR 1=1 --
+        and Where(
+            items.status != 'removed' AND items.title || ' ' || items.description || ' ' || items.location LIKE '%' OR 1=1 -- %'
+        )
+        The order of operation in sql is NOT -> AND -> OR
+        so this evaluates to (FALSE AND TRUE) OR TRUE
+        -- %' is just a comment
+        Now the sql query just searches all records WHERE TRUE
+
+- Document how to trigger it:
+Triggered by going to the main page and entering    ' OR 1=1 --
+No user login is required to run this command
+
+
+- Patch it without breaking normal use of the board: 
+complete
+
+- Submit the hosted URL:
+
+
+- A short architecture sketch:
+
+
+- The writeup:
+
+
+- The patched repo:
+
+
+
+
+original function
+function searchItems({ q, category, kind }) {
+  let sql = `
+    SELECT
+      items.id,
+      items.user_id,
+      items.kind,
+      items.category,
+      items.title,
+      items.description,
+      items.location,
+      items.contact_pref,
+      items.status,
+      items.created_at,
+      users.display_name AS owner_name
+    FROM items
+    JOIN users ON users.id = items.user_id
+    WHERE items.status != 'removed'
+  `;
+
+  if (q) {
+    sql += ` AND items.title || ' ' || items.description || ' ' || items.location LIKE '%${q}%'`;
+  }
+
+  if (category && category !== "all") {
+    sql += ` AND items.category = '${category}'`;
+  }
+
+  if (kind && kind !== "all") {
+    sql += ` AND items.kind = '${kind}'`;
+  }
+
+  sql += " ORDER BY items.created_at DESC LIMIT 50";
+  return db.prepare(sql).all();
+}
+
+new function
+function searchItems({ q, category, kind }) {
+  let sql = `
+    SELECT
+      items.id,
+      items.user_id,
+      items.kind,
+      items.category,
+      items.title,
+      items.description,
+      items.location,
+      items.contact_pref,
+      items.status,
+      items.created_at,
+      users.display_name AS owner_name
+    FROM items
+    JOIN users ON users.id = items.user_id
+    WHERE items.status != 'removed'
+  `;
+
+ const user_inputs = []
+
+  if (q) {
+    sql += ` AND items.title || ' ' || items.description || ' ' || items.location LIKE ?`;
+    user_inputs.push(`%${q}%`);
+  }
+
+  if (category && category !== "all") {
+    sql += ` AND items.category = ?`;
+    user_inputs.push(category);
+  }
+
+  if (kind && kind !== "all") {
+    sql += ` AND items.kind = ?`;
+    user_inputs.push(kind);
+  }
+
+  sql += " ORDER BY items.created_at DESC LIMIT 50";
+  return db.prepare(sql).all();
+}
